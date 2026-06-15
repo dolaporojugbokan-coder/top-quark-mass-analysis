@@ -141,7 +141,7 @@ for m_true, filename in zip(mass_list, file_list):
     data_tmp = pd_norm * N_tmp
 
     # -2lnL at 5 mass points
-    def nll_tmp(mtop):
+    def nll_tmp(mtop, N_tmp, data_tmp):
         t = slopes * mtop + intercepts
         t = np.clip(t, 1e-12, None)
         t = t / t.sum()
@@ -151,13 +151,18 @@ for m_true, filename in zip(mass_list, file_list):
         nz = n > 0
         term[nz] += n[nz] * np.log(n[nz] / mu[nz])
         return 2.0 * np.sum(term)
-
-    nll_pts = [nll_tmp(m) for m in mass_list]
-
-    # fit parabola
-    aa, bb, cc = np.polyfit(mass_list, nll_pts, 2)
-    m_meas  = -bb / (2.0 * aa)
-    sig     = 1.0 / np.sqrt(aa)
+    
+    # continuous scan around true mass
+    mass_scan    = np.linspace(m_true - 1.5, m_true + 1.5, 1000)
+    nll_scan     = np.array([nll_tmp(m, N_tmp, data_tmp) for m in mass_scan])
+    index_min    = np.argmin(nll_scan)
+    mass_at_min  = mass_scan[index_min]
+    near_min     = np.abs(mass_scan - mass_at_min) < 0.5
+    mass_near    = mass_scan[near_min]
+    nll_near     = nll_scan[near_min]
+    aa, bb, cc   = np.polyfit(mass_near, nll_near, 2) 
+    m_meas       = -bb / (2.0 * aa)
+    sig          = 1.0 / np.sqrt(aa)
     bias = m_true - m_meas
     bias_values.append(bias)
     bias_errors.append(sig)
@@ -174,7 +179,7 @@ for m_true, filename in zip(mass_list, file_list):
     # Plot 1: raw -2lnL
     plt.figure(figsize=(7, 5))
     plt.plot(m_sc, nll_sc, 'r-', lw=2)
-    plt.plot(mass_list, nll_pts, 'kx', ms=8, mew=2, label='5 mass points')
+    plt.plot(mass_scan, nll_scan, 'r-', lw=2)   
     plt.axvline(m_meas, color='grey', ls=':', lw=1)
     plt.xlabel(r"$m_{top}$ [GeV]")
     plt.ylabel(r"$-2\ln L$")

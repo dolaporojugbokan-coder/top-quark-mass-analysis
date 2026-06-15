@@ -126,11 +126,6 @@ bias_values  = []
 bias_errors  = []
 
 for m_true, filename in zip(mass_list, file_list):
-    # build pseudo data from parametrized template at m_true
-    pd_raw  = slopes * m_true + intercepts
-    pd_raw  = np.clip(pd_raw, 1e-12, None)
-    pd_norm = pd_raw / pd_raw.sum()
-
     # get N from the real histogram
     f_tmp = ROOT.TFile.Open(f"{FOLDER}/{filename}")
     h_tmp = f_tmp.Get("h_mtop_param")
@@ -138,8 +133,7 @@ for m_true, filename in zip(mass_list, file_list):
     f_tmp.Close()
     N_tmp = sum(h_tmp.GetBinContent(i) for i in range(1, nbins+1))
     print(f"m_true = {m_true} | N_tmp = {N_tmp:.0f}")
-    data_tmp = pd_norm * N_tmp
-
+    data_tmp = np.array([h_tmp.GetBinContent(i) for i in range(1, nbins+1)])
     # -2lnL at 5 mass points
     def nll_tmp(mtop, N_tmp, data_tmp):
         t = slopes * mtop + intercepts

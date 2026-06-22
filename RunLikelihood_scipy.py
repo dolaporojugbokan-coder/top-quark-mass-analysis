@@ -65,13 +65,19 @@ def negLogLik(mtop, wdf, data):
     term[nz] += n[nz] * np.log(n[nz] / mu[nz])
     return 2.0 * np.sum(term)
 
-# ── Find minimum and sigma using scipy BFGS for 172.5 ───────────────────────
+# ── Find minimum using scipy for 172.5 ──────────────────────────────────────
 result_172p5 = opt.minimize(negLogLik,
                             x0=[172.5],
-                            args=(wdf, data_counts),
-                            method='BFGS')
-m_hat  = result_172p5.x[0]
-sigma  = np.sqrt(result_172p5.hess_inv[0, 0])
+                            args=(wdf, data_counts))
+m_hat = result_172p5.x[0]
+
+# ── Get sigma using profile likelihood scan ──────────────────────────────────
+nll_at_min  = negLogLik(m_hat, wdf, data_counts)
+mass_scan   = np.linspace(m_hat - 0.3, m_hat + 0.3, 10000)
+nll_scan    = np.array([negLogLik(m, wdf, data_counts) for m in mass_scan])
+nll_shifted = nll_scan - nll_at_min
+below_one   = mass_scan[nll_shifted < 1.0]
+sigma       = (below_one[-1] - below_one[0]) / 2.0
 
 print(f"\nMeasured mass : {m_hat:.3f} GeV")
 print(f"Uncertainty   : +/- {sigma:.3f} GeV")
@@ -90,7 +96,6 @@ plt.savefig(f"{HOME}/output_likelihood/scipy_plot1_172p5.png",
 plt.close()
 
 # ── Plot 2: shifted Δ(-2lnL) for 172.5 ──────────────────────────────────────
-nll_at_min       = negLogLik(m_hat, wdf, data_counts)
 mass_zoom        = np.linspace(m_hat - 5*sigma, m_hat + 5*sigma, 2000)
 nll_zoom         = np.array([negLogLik(m, wdf, data_counts) for m in mass_zoom])
 nll_zoom_shifted = nll_zoom - nll_at_min
@@ -133,13 +138,19 @@ for m_true, filename in zip(mass_list, file_list):
     data_tmp = np.array([h_tmp.GetBinContent(i) for i in range(1, nbins+1)])
     print(f"m_true = {m_true} | N_tmp = {N_tmp:.0f}")
 
-    # ── Find minimum and sigma using scipy BFGS ──────────────────────────────
+    # ── Find minimum using scipy ─────────────────────────────────────────────
     result = opt.minimize(negLogLik,
                           x0=[m_true],
-                          args=(wdf, data_tmp),
-                          method='BFGS')
+                          args=(wdf, data_tmp))
     m_meas = result.x[0]
-    sig    = np.sqrt(result.hess_inv[0, 0])
+
+    # ── Get sigma using profile likelihood scan ──────────────────────────────
+    nll_at_min  = negLogLik(m_meas, wdf, data_tmp)
+    mass_scan   = np.linspace(m_meas - 0.3, m_meas + 0.3, 10000)
+    nll_scan    = np.array([negLogLik(m, wdf, data_tmp) for m in mass_scan])
+    nll_shifted = nll_scan - nll_at_min
+    below_one   = mass_scan[nll_shifted < 1.0]
+    sig         = (below_one[-1] - below_one[0]) / 2.0
 
     bias = m_true - m_meas
     bias_values.append(bias)

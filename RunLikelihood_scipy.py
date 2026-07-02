@@ -27,11 +27,11 @@ intercepts = np.array(intercepts)
 nbins      = len(slopes)
 print(f"Loaded {nbins} bins")
 
-# ── wdf = parametrisation (slopes and intercepts stacked) ────────────────────
+#  wdf = parametrisation
 wdf = np.array([slopes, intercepts])
 
-# ── Build pseudo data from f(172.5) ─────────────────────────────────────────
-pseudo_raw  = slopes * 172.5 + intercepts
+# ── Build pseudo data from f(172.1) ─────────────────────────────────────────
+pseudo_raw  = slopes * 172.1 + intercepts
 pseudo_raw  = np.clip(pseudo_raw, 1e-12, None)
 pseudo_norm = pseudo_raw / pseudo_raw.sum()
 
@@ -67,7 +67,7 @@ def negLogLik(mtop, wdf, data):
 
 # ── Find minimum using scipy for 172.5 ──────────────────────────────────────
 result_172p5 = opt.minimize(negLogLik,
-                            x0=[172.5],
+                            x0=[172.1],
                             args=(wdf, data_counts))
 m_hat = result_172p5.x[0]
 
@@ -91,7 +91,7 @@ plt.axvline(m_hat, color='grey', ls=':', lw=1)
 plt.xlabel(r"$m_{top}$ [GeV]")
 plt.ylabel(r"$-2\ln L$")
 plt.tight_layout()
-plt.savefig(f"{HOME}/output_likelihood/scipy_plot1_172p5.png",
+plt.savefig(f"{HOME}/output_likelihood/scipy_plot1_171.png",
             dpi=150, bbox_inches='tight')
 plt.close()
 
@@ -136,6 +136,7 @@ for m_true, filename in zip(mass_list, file_list):
     f_tmp.Close()
     N_tmp    = sum(h_tmp.GetBinContent(i) for i in range(1, nbins+1))
     data_tmp = np.array([h_tmp.GetBinContent(i) for i in range(1, nbins+1)])
+    data_tmp = np.random.poisson(data_tmp).astype(float)
     print(f"m_true = {m_true} | N_tmp = {N_tmp:.0f}")
 
     # ── Find minimum using scipy ─────────────────────────────────────────────

@@ -32,9 +32,10 @@ nbins      = len(slopes)
 wdf        = np.array([slopes, intercepts])
 print(f"Loaded {nbins} bins")
 
-# ── Negative log likelihood ──────────────────────────────────────────────────
+# ── Negative log likelihood (fixed: mtop handled safely) ─────────────────────
 def negLogLik(mtop, wdf, data):
-    template  = wdf[0] * mtop + wdf[1]
+    m         = float(np.atleast_1d(mtop)[0])    
+    template  = wdf[0] * m + wdf[1]
     template  = np.clip(template, 1e-12, None)
     template  = template / template.sum()
     expected  = template * data.sum()

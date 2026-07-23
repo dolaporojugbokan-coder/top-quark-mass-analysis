@@ -1,3 +1,4 @@
+import os
 import ROOT
 import numpy as np
 import scipy.optimize as opt
@@ -11,6 +12,8 @@ HOME   = "/home/drojugbo"
 FOLDER = ("/data/aknue/Output_212247_MASS_SwitchToFS_MPP_NewDNN2_onlyCP/"
           "Output_lepjets_Win_mlb_mw2/Out_NOM_FS/Merged_nominal")
 PARAM  = f"{HOME}/output_parametrisation/Param_mtop.txt"
+OUTPUT_DIR = f"{HOME}/output_closure"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Fix random seed for reproducibility
 np.random.seed(42)
@@ -30,20 +33,16 @@ with open(PARAM) as fp:
 slopes     = np.array(slopes)
 intercepts = np.array(intercepts)
 nbins      = len(slopes)
-# wdf holds the parametrisation: wdf[0]=slopes, wdf[1]=intercepts
 wdf        = np.array([slopes, intercepts])
 print(f"Loaded {nbins} bins")
 
 def negLogLik(mtop, wdf, data):
-    # Ensure mtop is a scalar
     m         = float(np.atleast_1d(mtop)[0])
     template  = wdf[0] * m + wdf[1]
     template  = np.clip(template, 1e-12, None)
-    # Normalise to shape then scale to match total events in data
     template  = template / template.sum()
     expected  = template * data.sum()
     observed  = data
-    # Baker-Cousins -2lnL formula
     term      = expected - observed
     nonzero   = observed > 0
     term[nonzero] += observed[nonzero] * np.log(observed[nonzero] / expected[nonzero])
@@ -52,7 +51,6 @@ def negLogLik(mtop, wdf, data):
 def gaussian(x, mean, width, height):
     return height * np.exp(-0.5 * ((x - mean) / width)**2)
 
-# All 5 mass points and their corresponding ROOT files
 mass_list = [171.0, 172.0, 172.5, 173.0, 174.0]
 file_list = [
     "Merge_Hist_Signal_PP8_171_Comb.root",
@@ -64,11 +62,15 @@ file_list = [
 
 N_EXPERIMENTS = 100000
 
+# fixed seed and bounds used for every fit, for every mass point
+SEED_MASS   = 169.5
+LOWER_BOUND = 168.0
+UPPER_BOUND = 177.0
+
 for m_true, filename in zip(mass_list, file_list):
 
     print(f"\nRunning {N_EXPERIMENTS} pseudo-experiments for m_true = {m_true} GeV...")
 
-    # Read the real MC histogram once
     f_tmp     = ROOT.TFile.Open(f"{FOLDER}/{filename}")
     h_tmp     = f_tmp.Get("h_mtop_param")
     h_tmp.SetDirectory(0)
@@ -83,16 +85,16 @@ for m_true, filename in zip(mass_list, file_list):
 
     for i in range(N_EXPERIMENTS):
 
-        # Step 1+2: Poisson-fluctuate the real histogram to get pseudo-data
         pseudo_data = np.random.poisson(real_histogram).astype(float)
 
-        # Step 3: fit the pseudo-data using L-BFGS-B with bounds
+        # seed fixed at 169.5 (not m_true) so the fit has to find its way
+        # to the answer from far away, rather than starting on top of it
         fit_result = opt.minimize(
             negLogLik,
-            x0=[m_true],
+            x0=[SEED_MASS],
             args=(wdf, pseudo_data),
             method="L-BFGS-B",
-            bounds=[(169.0, 176.0)],
+            bounds=[(LOWER_BOUND, UPPER_BOUND)],
             options={"ftol": 1e-12, "gtol": 1e-8, "maxiter": 1000}
         )
         m_measured = fit_result.x[0]
@@ -100,22 +102,20 @@ for m_true, filename in zip(mass_list, file_list):
         if not fit_result.success:
             failed_fits += 1
 
-        # Extract sigma using brentq to find exact delta(-2lnL) = 1 crossings
         nll_at_minimum = negLogLik(m_measured, wdf, pseudo_data)
 
         def delta_nll_minus_one(m):
             return negLogLik(m, wdf, pseudo_data) - nll_at_minimum - 1.0
 
         try:
-            left_crossing  = opt.brentq(delta_nll_minus_one, 169.0, m_measured)
-            right_crossing = opt.brentq(delta_nll_minus_one, m_measured, 176.0)
+            left_crossing  = opt.brentq(delta_nll_minus_one, LOWER_BOUND, m_measured)
+            right_crossing = opt.brentq(delta_nll_minus_one, m_measured, UPPER_BOUND)
         except ValueError:
             failed_fits += 1
             continue
 
         sigma_measured = 0.5 * (right_crossing - left_crossing)
 
-        # Pull = (fitted mass - true mass) / uncertainty
         pull = (m_measured - m_true) / sigma_measured
         pulls.append(pull)
 
@@ -135,24 +135,20 @@ for m_true, filename in zip(mass_list, file_list):
     residuals      = m_measured_arr - m_true
     mass_str       = str(m_true).replace('.', 'p')
 
-    # Uncertainty on the mean residual
     residual_mean       = np.mean(residuals)
     residual_std        = np.std(residuals, ddof=1)
     residual_mean_error = residual_std / np.sqrt(len(residuals))
 
     print(f"Residual mean = {residual_mean:+.6f} +/- {residual_mean_error:.6f} GeV")
 
-    # Save residual summary for closure plot
-    with open(f"{HOME}/output_closure/residual_summary_{mass_str}_100k.txt", "w") as out:
+    with open(f"{OUTPUT_DIR}/residual_summary_{mass_str}_100k.txt", "w") as out:
         out.write("# m_true   mean_residual   error_on_mean   residual_std\n")
         out.write(f"{m_true:.1f}   {residual_mean:.9f}   "
                   f"{residual_mean_error:.9f}   {residual_std:.9f}\n")
     print(f"Saved residual_summary_{mass_str}_100k.txt")
 
-    # Save pulls
-    np.save(f"{HOME}/output_closure/pulls_{mass_str}_100k.npy", pulls)
+    np.save(f"{OUTPUT_DIR}/pulls_{mass_str}_100k.npy", pulls)
 
-    # Fit Gaussian to pull distribution
     bin_counts, bin_edges = np.histogram(pulls, bins=100, density=True)
     bin_centers           = (bin_edges[:-1] + bin_edges[1:]) / 2
 
@@ -164,7 +160,6 @@ for m_true, filename in zip(mass_list, file_list):
     print(f"Pull mean = {pull_mean:.3f} +/- {mean_error:.3f}, "
           f"std = {pull_width:.3f} +/- {width_error:.3f}")
 
-    # Plot 1: pull distribution
     plt.figure(figsize=(7, 5))
     plt.hist(pulls, bins=100, density=True, histtype='step',
              color='steelblue', linewidth=1.5, label='Pull distribution')
@@ -180,12 +175,11 @@ for m_true, filename in zip(mass_list, file_list):
     plt.title(f"Pull distribution for $m_{{top}}$ = {m_true} GeV (100k experiments)")
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f"{HOME}/output_closure/pull_{mass_str}_100k.png",
+    plt.savefig(f"{OUTPUT_DIR}/pull_{mass_str}_100k.png",
                 dpi=150, bbox_inches='tight')
     plt.close()
     print(f"Saved pull_{mass_str}_100k.png")
 
-    # Plot 2: fitted m_top distribution
     plt.figure(figsize=(7, 5))
     plt.hist(m_measured_arr, bins=100, histtype='step',
              color='steelblue', linewidth=1.5)
@@ -198,12 +192,11 @@ for m_true, filename in zip(mass_list, file_list):
     plt.title(f"Fitted $m_{{top}}$ distribution for {m_true} GeV (100k experiments)")
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f"{HOME}/output_closure/m_measured_{mass_str}_100k.png",
+    plt.savefig(f"{OUTPUT_DIR}/m_measured_{mass_str}_100k.png",
                 dpi=150, bbox_inches='tight')
     plt.close()
     print(f"Saved m_measured_{mass_str}_100k.png")
 
-    # Plot 3: residual distribution with uncertainty on the mean
     counts, bin_edges_res = np.histogram(residuals, bins=100)
     bin_centers_res       = (bin_edges_res[:-1] + bin_edges_res[1:]) / 2
     bin_errors_res        = np.sqrt(counts)
@@ -220,12 +213,11 @@ for m_true, filename in zip(mass_list, file_list):
     plt.title(f"Residual $m_{{top}}^{{fit}} - m_{{top}}^{{true}}$ for {m_true} GeV (100k)")
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f"{HOME}/output_closure/residual_{mass_str}_100k.png",
+    plt.savefig(f"{OUTPUT_DIR}/residual_{mass_str}_100k.png",
                 dpi=150, bbox_inches='tight')
     plt.close()
     print(f"Saved residual_{mass_str}_100k.png")
 
-    # Plot 4: upper error distribution
     plt.figure(figsize=(7, 5))
     plt.hist(upper_arr, bins=100, histtype='step',
              color='steelblue', linewidth=1.5)
@@ -236,12 +228,11 @@ for m_true, filename in zip(mass_list, file_list):
     plt.title(f"Upper error distribution for {m_true} GeV (100k experiments)")
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f"{HOME}/output_closure/upper_error_{mass_str}_100k.png",
+    plt.savefig(f"{OUTPUT_DIR}/upper_error_{mass_str}_100k.png",
                 dpi=150, bbox_inches='tight')
     plt.close()
     print(f"Saved upper_error_{mass_str}_100k.png")
 
-    # Plot 5: lower error distribution
     plt.figure(figsize=(7, 5))
     plt.hist(lower_arr, bins=100, histtype='step',
              color='steelblue', linewidth=1.5)
@@ -252,7 +243,7 @@ for m_true, filename in zip(mass_list, file_list):
     plt.title(f"Lower error distribution for {m_true} GeV (100k experiments)")
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f"{HOME}/output_closure/lower_error_{mass_str}_100k.png",
+    plt.savefig(f"{OUTPUT_DIR}/lower_error_{mass_str}_100k.png",
                 dpi=150, bbox_inches='tight')
     plt.close()
     print(f"Saved lower_error_{mass_str}_100k.png")

@@ -10,6 +10,7 @@ ONE_SIDED_SOURCES = [
     "Merged_MET_SoftTrk_ResoPara",
     "Merged_MET_SoftTrk_ResoPerp",
     "Merged_weight_nnlo_3d",
+    "Merged_weight_MMHT",
 ]
 
 SUFFIX_PATTERNS = [
@@ -25,6 +26,12 @@ SUFFIX_PATTERNS = [
 
 
 def classify(name):
+    # NNPDF alpha_s variation - checked first since it has its own suffix
+    if name.endswith("_as_dw"):
+        return name[:-len("_as_dw")] + "_as", "down"
+    if name.endswith("_as_up"):
+        return name[:-len("_as_up")] + "_as", "up"
+
     for pattern, direction in SUFFIX_PATTERNS:
         match = re.search(pattern, name, re.IGNORECASE)
         if match:
@@ -36,7 +43,6 @@ def classify(name):
     return None, None
 
 
-# read the fitted mass results
 results = {}
 with open(RESULTS_FILE) as f:
     reader = csv.DictReader(f)
@@ -106,7 +112,11 @@ for base in sorted(sources.keys()):
 
 for label, mass in one_sided_results.items():
     systematic = abs(mass - nominal_mass)
-    rows.append((label, systematic, "one-sided, |fit - nominal|"))
+    if label == "Merged_weight_MMHT":
+        method = "PDF set comparison, |fit - nominal|"
+    else:
+        method = "one-sided, |fit - nominal|"
+    rows.append((label, systematic, method))
 
 if nnpdf_masses:
     nnpdf_masses = np.array(nnpdf_masses)
